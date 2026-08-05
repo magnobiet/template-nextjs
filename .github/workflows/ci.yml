@@ -1,0 +1,100 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '24'
+      pnpm_version:
+        description: 'PNPM version'
+        required: false
+        type: string
+        default: '11.13.0'
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm_version || '11.13.0' }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version || '24' }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --config.minimumReleaseAge=0
+
+      - parallel:
+          - name: Typecheck
+            run: |
+              pnpm typecheck 2>&1
+              EXIT_CODE=${PIPESTATUS[0]}
+              STATUS=$([ $EXIT_CODE -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')
+              echo "## Typecheck — $STATUS" >> $GITHUB_STEP_SUMMARY
+              exit $EXIT_CODE
+
+          - name: Unit test
+            run: |
+              pnpm test:coverage 2>&1
+              EXIT_CODE=${PIPESTATUS[0]}
+              STATUS=$([ $EXIT_CODE -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')
+              echo "## Unit Tests — $STATUS" >> $GITHUB_STEP_SUMMARY
+              exit $EXIT_CODE
+
+          - name: End-to-end test
+            run: |
+              pnpm test:e2e 2>&1
+              EXIT_CODE=${PIPESTATUS[0]}
+              STATUS=$([ $EXIT_CODE -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')
+              echo "## End-to-End Tests — $STATUS" >> $GITHUB_STEP_SUMMARY
+              exit $EXIT_CODE
+
+          - name: Lint
+            run: |
+              pnpm lint 2>&1
+              EXIT_CODE=${PIPESTATUS[0]}
+              STATUS=$([ $EXIT_CODE -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')
+              echo "## Lint — $STATUS" >> $GITHUB_STEP_SUMMARY
+              exit $EXIT_CODE
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm_version || '11.13.0' }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node_version || '24' }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --config.minimumReleaseAge=0
+
+      - name: Build
+        run: |
+          pnpm build 2>&1
+          EXIT_CODE=${PIPESTATUS[0]}
+          STATUS=$([ $EXIT_CODE -eq 0 ] && echo '✅ Passed' || echo '❌ Failed')
+          echo "## Build — $STATUS" >> $GITHUB_STEP_SUMMARY
+          exit $EXIT_CODE
